@@ -91,8 +91,8 @@ knitr::knit_hooks$set(plot = function(x, options) {  # set new plot hook ...
 ```{r data setup, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
 
 # Pull in Data
-Data<-read_excel(here::here("J:/PFGE/NGS/Emily Analysis","SARS Sequencing PendingListSamples.xlsx"))
-Failure<-read_excel(here::here("J:/PFGE/NGS/Emily Analysis","SARS-CoV-2_Terra.xlsx"))
+Data<-read_excel(here::here("[Location]","SARS Sequencing PendingListSamples.xlsx"))
+Failure<-read_excel(here::here("[Location]","SARS-CoV-2_Terra.xlsx"))
 
 Data$`CT Value` <- as.numeric(Data$`CT Value`) #as number
 Data$Provider <- as.factor(Data$Provider)
@@ -166,7 +166,7 @@ library(sjPlot)
 Data$Platform <- relevel(Data$Platform, ref = "Cobas 6800")
 DataAnova1 <- lm(formula = `CT Value` ~ Platform, data = Data)
 summary(DataAnova1)
-write.csv(tidy(DataAnova1), file = "J:/PFGE/NGS/Emily Analysis/Platform.csv", na = "")
+write.csv(tidy(DataAnova1), file = "[Location]/Platform.csv", na = "")
 
 
 ```
@@ -207,7 +207,7 @@ Berkshire medical center has very high CT values.
 
 DataAnova2 <- lm(formula = `CT Value` ~ Provider, data = Data)
 summary(DataAnova2)
-write.csv(tidy(DataAnova2), file = "J:/PFGE/NGS/Emily Analysis/Provider.csv", na = "")
+write.csv(tidy(DataAnova2), file = "[Location]/Provider.csv", na = "")
 
 ```
 
@@ -251,7 +251,7 @@ knitr::kable(FailurePlatWide, caption = "Summary of PASS/FAIL by Platform") %>%
   kable_styling("bordered", position = "center") %>%
   kable_styling(latex_options = "HOLD_position")
 
-write.xlsx(FailurePlatWide, "J:/PFGE/NGS/Emily Analysis/FailurePlatTable.xlsx", append = TRUE)
+write.xlsx(FailurePlatWide, "[Location]/FailurePlatTable.xlsx", append = TRUE)
 
 ```
 
@@ -306,7 +306,7 @@ knitr::kable(FailureProvWide, caption = "Summary of PASS/FAIL by Provider") %>%
   kable_styling("bordered", position = "center") %>%
   kable_styling(latex_options = "HOLD_position")
 
-write.xlsx(FailureProvWide, "J:/PFGE/NGS/Emily Analysis/FailureProvTable.xlsx", append = TRUE)
+write.xlsx(FailureProvWide, "[Location]/FailureProvTable.xlsx", append = TRUE)
 
 ```
 
@@ -349,7 +349,7 @@ FailureBatchWide<-FailureBatchWide%>%
   adorn_totals(c("row"))
 FailureBatchWide$PercentPass <- (FailureBatchWide$Pass/(FailureBatchWide$Pass+FailureBatchWide$Fail))
 FailureBatchWide$PercentPass <- percent(FailureBatchWide$PercentPass)
-write.xlsx(FailureBatchWide, "J:/PFGE/NGS/Emily Analysis/FailureBatchTable.xlsx", append = TRUE)
+write.xlsx(FailureBatchWide, "[Location]/FailureBatchTable.xlsx", append = TRUE)
 
 FailureBatch2 <-as.data.frame(table(Failure$assembly_status, Failure$batchid))
 FailureBatchWide2<-reshape(FailureBatch2, idvar= 'Var2', timevar='Var1', direction="wide")
@@ -369,7 +369,7 @@ knitr::kable(FailureBatchWide, caption = "Summary of PASS/FAIL by Provider") %>%
   kable_styling("bordered", position = "center") %>%
   kable_styling(latex_options = "HOLD_position")
 
-write.xlsx(FailureBatchWide2, "J:/PFGE/NGS/Emily Analysis/FailureBatchTable2.xlsx", append = TRUE)
+write.xlsx(FailureBatchWide2, "[Location]/FailureBatchTable2.xlsx", append = TRUE)
 
 failure3 <- glm(assembly_status ~ batchid, data = DataFailure, family = "binomial")
 ```
