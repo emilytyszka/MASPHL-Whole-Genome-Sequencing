@@ -1,0 +1,499 @@
+---
+title: "SARS-CoV-2 Sequencing Analysis"
+date: '`r Sys.Date()`'
+output:
+  pdf_document: default
+  classoption: landscape
+  html_document:
+    df_print: paged
+header-includes:
+- \usepackage{titling}
+- \usepackage{wrapfig}
+- \usepackage{lipsum}
+- \usepackage{pdflscape}
+- \pretitle{\begin{center} \includegraphics[width=2in,height=2in]{1200px-MassDPH_svg.png}\LARGE\\}
+- \posttitle{\end{center}}
+- \newcommand{\blandscape}{\begin{landscape}}
+- \newcommand{\elandscape}{\end{landscape}}
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+#Load in Libraries
+library(readxl)
+library(plyr)
+library(dplyr)
+library(arsenal)
+library(ggplot2)
+library(writexl)
+library(openxlsx)
+library(lubridate) 
+library(data.table)
+library(kableExtra)
+library(knitr)
+library(tidyr)
+library(janitor)
+library(scales)
+library(kableExtra)
+library(tinytex)
+library(yaml)
+library(ggpubr)
+library(cowplot)
+library(zoo)
+library(formattable)
+library(treemap)
+library(viridis)
+library(paletteer)
+library(rlist)
+library(magrittr)
+library(mosaic)
+library(tidyverse)
+library(readxl)
+library(tableone)
+library(RColorBrewer)
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_knit$set(root.dir= normalizePath('..'))
+knitr::opts_chunk$set(error = FALSE)
+library(tidyr)
+library(scales)
+library(tinytex)
+library(yaml)
+library(ggpubr)
+library(cowplot)
+library(formattable)
+library(treemap)
+
+```
+
+```{r, include = F}
+
+knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_knit$set(root.dir= normalizePath('..'))
+knitr::opts_chunk$set(error = FALSE)
+
+defOut <- knitr::knit_hooks$get("plot")  # save the default plot hook 
+knitr::knit_hooks$set(plot = function(x, options) {  # set new plot hook ...
+  x <- defOut(x, options)  # first apply the default hook
+  if(!is.null(options$wrapfigure)) {  # then, if option wrapfigure is given ...
+    # create the new opening string for the wrapfigure environment ...
+    wf <- sprintf("\\begin{wrapfigure}{%s}{%g\\textwidth}", options$wrapfigure[[1]], options$wrapfigure[[2]])
+    x  <- gsub("\\begin{figure}", wf, x, fixed = T)  # and replace the default one with it.
+    x  <- gsub("{figure}", "{wrapfigure}", x, fixed = T)  # also replace the environment ending
+  }
+  return(x)
+})
+```
+
+# Summary 
+
+```{r data setup, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+# Pull in Data
+Data<-read_excel(here::here("J:/PFGE/NGS/Emily Analysis","SARS Sequencing PendingListSamples.xlsx"))
+Failure<-read_excel(here::here("J:/PFGE/NGS/Emily Analysis","SARS-CoV-2_Terra.xlsx"))
+
+Data$`CT Value` <- as.numeric(Data$`CT Value`) #as number
+Data$Provider <- as.factor(Data$Provider)
+Data$Platform <- as.factor(Data$Platform)
+Data$Platform <- fct_collapse(Data$Platform, TaqPath = c("TaqPath", "Taqpath"))
+Data$Provider <- fct_collapse(Data$Provider, "CHILDREN'S HOSPITAL" = c("CHILDREN'S HOSPITAL", "CHILDRENS HOSPITAL"))
+Data$Platform <- fct_collapse(Data$Platform, Genexpert = c("Genexpert", "Cepheid Genexpert"))
+Data$Platform <- fct_collapse(Data$Platform, "Cobas 6800" = c("BUR MOL ROCHE 6800", "Cobas 6800"))
+
+Failure$AccessionNo <- Failure$`entity:sample_id`
+DataFailure <- merge(x = Data, y = Failure, by.x="AccessionNo")
+DataFailure <- DataFailure %>% 
+  filter(Platform != "NA")
+DataFailure <- DataFailure %>% select("AccessionNo", assembly_status, Platform, Provider, batchid, fastqc_clean_pairs, fastqc_raw_pairs, kraken_human, kraken_sc2)
+
+Data$AccCT <- paste(Data$AccessionNo, Data$`CT Value`)
+
+Data <- data.table(Data, key=c('AccCT'))
+Data <- Data %>% 
+  filter(Platform != "NA")
+Data <- Data %>% 
+  filter(`CT Value` != "NA")
+
+## Vector of variables to summarize
+myVars <- c("CT Value", "Platform", "Provider", "assembly_status")
+## Vector of categorical variables that need transformation
+catVars <- c("Platform", "Provider", "assembly_status")
+## Create a TableOne object
+kableone(CreateTableOne(vars = myVars, data = DataFailure, factorVars = catVars)) %>%
+  kable_styling("bordered", position = "center") %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+Important note: this is only about half of the 3100 or so runs for which we had data, with half being lost in the merges.
+
+\pagebreak
+
+
+# Modelling CT Values
+
+First, we will examine CT value, making using of linear regression to determine the independent effects of different platforms and providers on the CT value. 
+
+The model will choose a "reference" value for platform/provider, then give estimates for average difference in CT from that reference for each other category. For example, an estimate of -5.60 for a platform tells us that the platform's CTs are typically 5.60 lower than the reference platform.
+
+Point estimates are given with 95% confidence intervals, and statistical significance can be determined from that. The null hypothesis would be that the difference in CTs is 0, so a 95% confidence interval which crosses 0 is considered not statistically significant (regardless of point estimate.) This can also be seen on the graphs provided as asterisks, with 1 or more asterisks indicating a p < 0.05.
+
+## CT Values by Platform
+
+We begin by visualizing CT values by platform:
+
+```{r graph platform, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+ggplot(Data, aes(x = Platform, y = `CT Value`, fill = Platform)) + theme_bw() + geom_boxplot(notch = TRUE) +  theme(aspect.ratio=0.5/.75) + scale_x_discrete(guide = guide_axis(angle = 90)) +  theme(legend.position = "none") + theme(axis.text.x=element_text(size=8))
+
+```
+
+The box plot above includes notches around the medians calculated as `1.58 * IQR / sqrt(n)` - this gives an approximate 95% confidence interval for the median, so we can assess visually whether two medians are significantly different - if the notches of their boxes do not overlap, the medians are different.
+
+Here, we see very wide notches, mainly due to low sample size on some platforms. However, there are some visually apparent patterns:
+
+- Many of the platforms have at least one noted CT value above 30.
+- Abbott m2000 appears to have a much lower CT value than any of the other platforms.
+- BUR MOL TF S2-Q87-2 has a very narrow box, indicating low standard deviation.
+
+A regression model of CT value as a function of platform used gives the following:
+
+```{r anova platform, echo=TRUE , warning=FALSE}
+
+library(broom)
+library(sjPlot)
+Data$Platform <- relevel(Data$Platform, ref = "Cobas 6800")
+DataAnova1 <- lm(formula = `CT Value` ~ Platform, data = Data)
+summary(DataAnova1)
+write.csv(tidy(DataAnova1), file = "J:/PFGE/NGS/Emily Analysis/Platform.csv", na = "")
+
+
+```
+
+To break this down, the model uses Cobas 6800 as a reference. The "intercept" of 19.5 is the estimate CT value for the Cobas 6800 platform, and any other platform's estimates can be determined by adding their coefficient to this intercept - Abbott m2000's mean CT is therefore 11.6 lower than 19.5, or 7.9. 
+
+Asterisks indicate significance - we find most platforms to have CTs significantly higher than Cobas 6800.
+
+
+```{r anova platform 1, echo=TRUE , warning=FALSE}
+
+plot_model(DataAnova1, show.values = TRUE, value.offset = .4, value.size=3)
+
+```
+
+This plot lays out the model visually. Estimates are given with 95% confidence intervals - positive estimates indicate CTs higher than Cobas 6800, while negatives are lower. 
+
+Since the null hypothesis is that the model coefficients would be 0, anything crossing 0 is not statistically significant. Asterisks by the numerical estimate can also be used to indicate significant coefficients.
+
+\pagebreak
+
+## CT Values by Provider
+
+We can do the same tests on provider. Here is the box plot:
+
+```{r graph provider, echo=FALSE, out.width = "75%", out.height="100%", fig.align = 'center', warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+ggplot(Data, aes(x = Provider, y = `CT Value`, fill = Provider)) + theme_bw() + 
+  geom_boxplot(notch = TRUE) + scale_x_discrete(guide = guide_axis(angle = 90)) +  
+  theme(legend.position = "none") + theme(axis.text.x=element_text(size=6))
+
+```
+
+Berkshire medical center has very high CT values.
+
+
+```{r anova provider, echo=TRUE, warning=FALSE, out.width = "50%"}
+
+DataAnova2 <- lm(formula = `CT Value` ~ Provider, data = Data)
+summary(DataAnova2)
+write.csv(tidy(DataAnova2), file = "J:/PFGE/NGS/Emily Analysis/Provider.csv", na = "")
+
+```
+
+The model uses Bay State Medical Center as a reference. Most of the sites have significantly higher CT values - Berkshire Medical Center's estimate is estimated at 16.9 higher than Bay State, at 36.4.
+
+```{r anova provider 1, echo=TRUE, warning=FALSE}
+plot_model(DataAnova2, show.values = TRUE, value.offset = .4, value.size=3)
+
+```
+
+
+# Modelling Failure
+
+Next, we will examine Pass/Fail as a binary outcome, making using of logistic regression to determine the independent effects of different variables. 
+
+Logistic regression models present us with **log odds ratios**, which we then  exponentiate to an odds ratio (relative odds of success, compared to a reference). For example, if we're using platform A as a reference and measure an odds ratio of 1.20 for platform B, that means that the odds of success of platform B is 1.20 times (or 20% more than) that of platform A. 
+
+Point estimates are given with 95% confidence intervals, and statistical significance can be determined from those intervals. The null hypothesis here is that odds will be equal (and therefore the ratio is 1), so an odds ratio confidence interval crossing 1 is considered not statistically significant.
+
+## By Platform
+
+Again, we start with platform. We find it summarized below:
+
+```{r glm plat failure summary, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+DataFailure$assembly_status <- as.factor(DataFailure$assembly_status)
+FailurePlat <-as.data.frame(table(DataFailure$assembly_status,DataFailure$Platform))
+FailurePlatWide<-reshape(FailurePlat, idvar= 'Var2', timevar='Var1', direction="wide")
+names(FailurePlatWide)[1]<-'Platform'
+names(FailurePlatWide)[2]<-'Fail'
+names(FailurePlatWide)[3]<-'Pass'
+FailurePlatWide<-FailurePlatWide%>%
+  adorn_totals(c("row"))
+FailurePlatWide$PercentPass <- 
+  (FailurePlatWide$Pass/(FailurePlatWide$Pass+FailurePlatWide$Fail))
+library(scales)
+FailurePlatWide$PercentPass <- percent(FailurePlatWide$PercentPass)
+
+rownames(FailurePlatWide) <- c()
+knitr::kable(FailurePlatWide, caption = "Summary of PASS/FAIL by Platform") %>%
+  kable_styling("bordered", position = "center") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+write.xlsx(FailurePlatWide, "J:/PFGE/NGS/Emily Analysis/FailurePlatTable.xlsx", append = TRUE)
+
+```
+
+
+Now we can generate a model, once again using the Cobas 6800 as reference:
+
+```{r glm plat failure, echo=TRUE, warning=FALSE}
+
+DataFailure$assembly_status <- as.factor(DataFailure$assembly_status)
+DataFailure$assembly_status <- relevel(DataFailure$assembly_status, ref = "FAIL")
+DataFailure$Platform <- relevel(DataFailure$Platform, ref = "Cobas 6800")
+ failure <- glm(assembly_status ~ Platform, data = DataFailure, family = "binomial")
+summary(failure)
+
+tidy(failure, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high)
+
+```
+
+For this type of model, the intercept does not matter. Rather, the estimates (shown as log(odds ratio) in the first table and converted odds ratios in the second) give us the odds ratios. For example, the Abbott Alinity platform's estimate is 2.07*10^-01 or 0.207, meaning that the odds of passing for this platform are  0.207 times that of Cobas 6800, or 79.3% lower. The model finds many of the platforms to have significantly lower odds of passing than the Cobas 6800.
+
+
+```{r glm plat failure 1 , echo=TRUE, warning=FALSE}
+
+plot_model(failure, show.values = TRUE, value.offset = .4, value.size=3) + 
+  scale_y_continuous(trans='log10')
+
+```
+
+We can see this visually here. Due to small sample sizes, 4 of the platforms' intervals are so wide that they cover the whole chart - those are not significant. The rest give odds ratio point estimates lower than 1 (the vertical axis), many significantly so.
+
+\pagebreak
+
+## By Provider
+
+Next, we examine by provider, again using Bay State as reference. Here we find it summarized:
+
+```{r glm prov failure summary, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+FailureProv <-as.data.frame(table(DataFailure$assembly_status,DataFailure$Provider))
+FailureProvWide<-reshape(FailureProv, idvar= 'Var2', timevar='Var1', direction="wide")
+names(FailureProvWide)[1]<-'Provider'
+names(FailureProvWide)[2]<-'Fail'
+names(FailureProvWide)[3]<-'Pass'
+FailureProvWide<-FailureProvWide%>%
+  adorn_totals(c("row"))
+FailureProvWide$PercentPass <- (FailureProvWide$Pass/(FailureProvWide$Pass+FailureProvWide$Fail))
+FailureProvWide$PercentPass <- percent(FailureProvWide$PercentPass)
+
+rownames(FailureProvWide) <- c()
+knitr::kable(FailureProvWide, caption = "Summary of PASS/FAIL by Provider") %>%
+  kable_styling("bordered", position = "center") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+write.xlsx(FailureProvWide, "J:/PFGE/NGS/Emily Analysis/FailureProvTable.xlsx", append = TRUE)
+
+```
+
+Modelling this, we find:
+
+```{r glm prov failure, echo=TRUE, warning=FALSE}
+
+
+DataFailure$assembly_status <- relevel(DataFailure$assembly_status, ref = "FAIL")
+failure2 <- glm(assembly_status ~ Provider, data = DataFailure, family = "binomial")
+summary(failure2)
+
+tidy(failure2, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high)
+
+```
+
+Most platforms have odds of passing below Bay State. For example, Beth Israel's estimate is 0.159 - its odds of passing are 84.1% lower than Bay State's.	
+
+```{r glm prov failure 1, echo=TRUE, warning=FALSE}
+
+plot_model(failure2, show.values = TRUE, value.offset = .4, value.size=3) + 
+  scale_y_continuous(trans='log10')
+
+```
+Again, low sample sizes add vertical bars to the plot for some providers, but for the others we can see significantly lower odds of passing than Bay State.
+
+## By Batch Number
+
+Next, we can examine batch number. Here we find it summarized:
+
+```{r glm batch failure, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+FailureBatch <-as.data.frame(table(DataFailure$assembly_status, DataFailure$batchid))
+FailureBatchWide<-reshape(FailureBatch, idvar= 'Var2', timevar='Var1', direction="wide")
+names(FailureBatchWide)[1]<-'Batch'
+names(FailureBatchWide)[2]<-'Fail'
+names(FailureBatchWide)[3]<-'Pass'
+FailureBatchWide<-FailureBatchWide%>%
+  adorn_totals(c("row"))
+FailureBatchWide$PercentPass <- (FailureBatchWide$Pass/(FailureBatchWide$Pass+FailureBatchWide$Fail))
+FailureBatchWide$PercentPass <- percent(FailureBatchWide$PercentPass)
+write.xlsx(FailureBatchWide, "J:/PFGE/NGS/Emily Analysis/FailureBatchTable.xlsx", append = TRUE)
+
+FailureBatch2 <-as.data.frame(table(Failure$assembly_status, Failure$batchid))
+FailureBatchWide2<-reshape(FailureBatch2, idvar= 'Var2', timevar='Var1', direction="wide")
+names(FailureBatchWide2)[1]<-'Batch'
+names(FailureBatchWide2)[2]<-'Fail'
+names(FailureBatchWide2)[3]<-'Pass'
+FailureBatchWide2<-FailureBatchWide2%>%
+  adorn_totals(c("row"))
+FailureBatchWide2$PercentPass <- 100*(FailureBatchWide2$Pass/(FailureBatchWide2$Pass+FailureBatchWide2$Fail))
+FailureBatchWide2$PercentPass <- percent(FailureBatchWide2$PercentPass)
+```
+
+```{r glm batch failure summary, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+rownames(FailureBatchWide) <- c()
+knitr::kable(FailureBatchWide, caption = "Summary of PASS/FAIL by Provider") %>%
+  kable_styling("bordered", position = "center") %>%
+  kable_styling(latex_options = "HOLD_position")
+
+write.xlsx(FailureBatchWide2, "J:/PFGE/NGS/Emily Analysis/FailureBatchTable2.xlsx", append = TRUE)
+
+failure3 <- glm(assembly_status ~ batchid, data = DataFailure, family = "binomial")
+```
+
+In a reasonable world, batches should all have the same number of passes and failures, and therefore batch shouldn't significantly influence odds of passing for a run. The reference here is the first batch on the list, batch_24238, which had a 77.78% pass rate.
+
+```{r glm batch failure 1, echo=TRUE, warning=FALSE}
+summary(failure3)
+tidy(failure3, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high)
+```
+
+We find significant differences between batches. Compared to batch_24238, batch_24294 had 4.80 times the odds of a pass - or 380% higher odds. 
+
+```{r glm batch failure 2, echo=TRUE, warning=FALSE}
+plot_model(failure3, show.values = TRUE, value.offset = .4, value.size=3) + 
+  scale_y_continuous(trans='log10')
+
+```
+
+
+## Fastqc Raw vs Clean
+
+Each run provides us two values from FastQC, one raw and one clean. We can examine the odds of success based on the difference between the two (raw minus clean). Here is the value graphed on a log scale:
+
+```{r glm fastqc failure 1, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+DataFailure$QCDiff <- DataFailure$fastqc_raw_pairs - DataFailure$fastqc_clean_pairs
+
+ggplot(DataFailure, aes(x = assembly_status, y = QCDiff, fill = assembly_status)) + theme_bw() + 
+  geom_violin(trim = FALSE) + geom_boxplot(notch = TRUE) + scale_x_discrete(guide = guide_axis(angle = 90)) +  theme(legend.position = "none") + theme(axis.text.x=element_text(size=8)) + 
+  scale_y_continuous(trans='log10') + ggtitle("FastQC Value Difference vs. Pass/Fail") +
+  xlab("Status") + ylab("FastQC Difference (log scale)")
+
+```
+
+It's hard to tell, but it looks like the passes show a just slightly bigger difference between the raw and clean values. Logistic regression models assume normality of the variables, so I will model this using the log of the QC difference, not the raw value.
+
+```{r glm fastqc failure, echo=TRUE, warning=FALSE}
+
+failure4 <- glm(assembly_status ~ log(QCDiff), data = DataFailure, family="binomial")
+summary(failure4)
+
+tidy(failure4, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high)
+
+```
+
+With an increase of 1 on the log difference between the raw and clean FastQC values, the odds of a pass increases by 52%!
+
+## Kraken % Human DNA
+
+Next we model based on percent human DNA:
+
+```{r glm perc human failure 1, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+ggplot(DataFailure, aes(x = assembly_status, y = kraken_human, fill = assembly_status)) + theme_bw() + 
+  geom_violin(trim = FALSE) + geom_boxplot(notch = TRUE) + scale_x_discrete(guide = guide_axis(angle = 90)) +  theme(legend.position = "none") + theme(axis.text.x=element_text(size=8)) + 
+  scale_y_continuous(trans='log10') + ggtitle("% Human DNA vs. Pass/Fail") +
+  xlab("Status") + ylab("% Human DNA (log scale)")
+
+```
+It seems, visually, that failures have higher percents of human DNA than passes. We can test this:
+
+```{r glm perc human failure, echo=TRUE, warning=FALSE}
+
+failure5 <- glm(assembly_status ~ kraken_human, data = DataFailure, family="binomial")
+summary(failure5)
+
+
+
+tidy(failure5, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high)
+
+```
+We find that with each 1% increase in human DNA, we there is a significant 17.9% decrease in odds of passing.
+
+## Kraken % SARS-CoV-2 RNA
+
+Finally, we model the percent of SARS-CoV-2 RNA:
+
+```{r glm perc sars failure 1, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+ggplot(DataFailure, aes(x = assembly_status, y = sqrt(kraken_sc2), fill = assembly_status)) + theme_bw() + 
+  geom_violin(trim = FALSE) + geom_boxplot(notch = TRUE) + scale_x_discrete(guide = guide_axis(angle = 90)) +  theme(legend.position = "none") + theme(axis.text.x=element_text(size=8))  + ggtitle("% SARS-CoV-2 RNA vs. Pass/Fail") +  xlab("Status") + ylab("% SARS-CoV-2 RNA")
+
+```
+The left skew here is very extreme... most values are about 100. An attempt at normalization with a square root (note the y axis) doesn't help the distribution, but thankfully I've found the same conclusion no matter how many square roots I use (not shown). I'm going to simply run it as-is for the sake of model interpretation.
+
+
+```{r glm perc sars failure, echo=TRUE, warning=FALSE}
+
+failure6 <- glm(assembly_status ~ kraken_sc2, data = DataFailure, family="binomial")
+summary(failure6)
+
+
+tidy(failure6, exponentiate = TRUE, conf.int = TRUE) %>%
+  select(term, estimate, conf.low, conf.high)
+
+```
+
+An increase in SARS-CoV-2 concentration is correlated with an increase in odds of passing.
+
+
+# Conclusions
+
+In short, PASS/FAIL and CT values do seem to show some variability as based on all of the variables examined, in particular between providers and platforms.
+
+It is important to emphasize that, among our sample, provider and platform aren't randomly distributed - each provider is only using a few different platforms at most, with most only using one. This is vital to understanding the results: 
+
+```{r summary graph, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+Data2 <- as.data.frame(table(Data$Provider,Data$Platform))
+names(Data2)[1]<-'Provider'
+names(Data2)[2]<-'Platform'
+names(Data2)[3]<-'Count'
+myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")))
+sc <- scale_colour_gradientn(colours = myPalette(100), limits=c(1, 400))
+ggplot(Data2, aes(x = Platform, y = Provider)) +  geom_point(aes(color = Count, size = Count), alpha = 0.5) + sc + scale_x_discrete(guide = guide_axis(angle = 90)) +
+  scale_size(range = c(1, 15)) + theme(axis.text.x=element_text(size=8), axis.text.y=element_text(size=6))  # Adjust the range of points size
+
+```
+
+When, for example, we find a high fail rate at a provider, that fail rate could be due to the provider, due to the platform, or due to an interaction of the two. My guess would be that much of the provider-pass relationship is mediated by platform being used, but when I attempted to model this the large number of platforms and providers with only tiny counts of samples made the modelling unsuccessful.
+
+
+Overall, however, these results point to a lack of consistency between the samples we have examined. 
