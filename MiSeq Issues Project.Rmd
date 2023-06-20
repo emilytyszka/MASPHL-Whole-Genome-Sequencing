@@ -1,0 +1,146 @@
+---
+title: "MiSeq Issues Analysis"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+#Load in Libraries
+library(readxl)
+library(plyr)
+library(dplyr)
+library(arsenal)
+library(ggplot2)
+library(gridExtra)
+library(writexl)
+library(openxlsx)
+library(lubridate) 
+library(data.table)
+library(kableExtra)
+library(tidyr)
+library(janitor)
+library(scales)
+library(kableExtra)
+library(tinytex)
+library(yaml)
+library(ggpubr)
+library(cowplot)
+library(zoo)
+library(formattable)
+library(treemap)
+library(viridis)
+library(paletteer)
+library(rlist)
+library(magrittr)
+library(mosaic)
+library(tidyverse)
+
+```
+
+
+```{r setup and summary, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+# Pull in Our Data
+MiSeqProblems<-read_excel(here::here("J:/PFGE/Emily/MiSeq Issues Project/Miseq_problems_collated.xlsx"))
+view(MiSeqProblems)
+```
+
+```{r graph of all issues, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+MiSeqProblems$Date <- as.Date(MiSeqProblems$Date)
+ggplot(MiSeqProblems, aes(x=`Date`)) + geom_histogram(color="black", fill="turquoise3", bins=88)+theme_bw()+ guides(fill="none")+ 
+  scale_x_date(date_labels="%b %d %Y",date_breaks  ="3 month", date_minor_breaks = "1 month") + geom_vline(xintercept=as.Date("2021-11-01"), linetype='dashed', color='tomato', size=1) + 
+  theme(axis.text.x = element_text(angle = 90)) + labs(title = "Reports of Illumina MiSeq issues increase with construction", subtitle = "Histogram of maintenance incidents, with construction start date (11/2021) marked as red line.")
+
+
+```
+
+```{r graph of all issues, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+MiSeqProblems$`Instrument Serial Number` <- as.factor(MiSeqProblems$`Instrument Serial Number`)
+ggplot(MiSeqProblems, aes(x=`Date`, fill=MiSeqProblems$`Instrument Serial Number`)) + geom_histogram(color="black",  bins=88)+theme_bw()+  
+  scale_x_date(date_labels="%b %d %Y",date_breaks  ="3 month", date_minor_breaks = "1 month") + geom_vline(xintercept=as.Date("2021-11-01"), linetype='dashed', color='tomato', size=1) + 
+  theme(axis.text.x = element_text(angle = 90)) + labs(title = "Reports of Illumina MiSeq issues increase with construction", subtitle = "Histogram of maintenance incidents, with construction start date (11/2021) marked as red line.")
+
+
+```
+
+```{r graph of all issues, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+
+MiSeqProblems$`General Error Type` <- as.factor(MiSeqProblems$`General Error Type`)
+ggplot(MiSeqProblems, aes(x=`Date`, fill=MiSeqProblems$`General Error Type`)) + geom_histogram(color="black",  bins=44)+theme_bw()+  
+  scale_x_date(date_labels="%b %d %Y",date_breaks  ="3 month", date_minor_breaks = "1 month") + geom_vline(xintercept=as.Date("2021-11-01"), linetype='dashed', color='tomato', size=1) + 
+  theme(axis.text.x = element_text(angle = 90)) + labs(title = "Reports of Illumina MiSeq issues increase with construction", subtitle = "Histogram of maintenance incidents, with construction start date (11/2021) marked as red line.")
+
+
+```
+
+```{r all runs, echo=FALSE , warning=FALSE, message=FALSE, results = "asis", type = 'latex'}
+#2016
+runs2016<-read_csv(here::here("J:/PFGE/Emily/MiSeq Issues Project/2016.csv"), skip = 3)
+runs2016 <- data.frame(do.call('rbind', strsplit(as.character(runs2016$`Mode                 LastWriteTime         Length Name`),'    ',fixed=TRUE)))
+runs2016 <- runs2016[-c(1,2,3,20), ]#drop row 20 - it's got rollover from previous row
+runs2016$instrument <- substring(runs2016$X5,12,17)#it gets funky here - we need to pull out the instrument name which is M04172, M03915, M04618, or M05166
+runs2016$date <- substring(runs2016$X5,19,24) #then the date, which is formatted "16MMDD" in the string.
+runs2016$date<-as.Date(as.character(runs2016$date), format='%y%m%d') #convert the YYMMDD format into a workable date
+
+#2017
+runs2017<-read_csv(here::here("J:/PFGE/Emily/MiSeq Issues Project/2017.csv"), skip = 3)
+runs2017 <- data.frame(do.call('rbind', strsplit(as.character(runs2017$`Mode                 LastWriteTime         Length Name`),'    ',fixed=TRUE)))
+runs2017 <- runs2017[-c(1,2,3), ]#drop row 20 - it's got rollover from previous row
+runs2017$instrument <- substring(runs2017$X5,12,17)#it gets funky here - we need to pull out the instrument name which is M04172, M03915, M04618, or M05166
+runs2017$date <- substring(runs2017$X5,19,24) #then the date, which is formatted "16MMDD" in the string.
+runs2017$date<-as.Date(as.character(runs2017$date), format='%y%m%d') #convert the YYMMDD format into a workable date
+
+#2018
+runs2018<-read_csv(here::here("J:/PFGE/Emily/MiSeq Issues Project/2018.csv"), skip = 3)
+runs2018 <- data.frame(do.call('rbind', strsplit(as.character(runs2018$`Mode                 LastWriteTime         Length Name`),'    ',fixed=TRUE)))
+runs2018 <- runs2018[-c(1,2,3), ]#drop row 20 - it's got rollover from previous row
+runs2018$instrument <- substring(runs2018$X5,12,17)#it gets funky here - we need to pull out the instrument name which is M04172, M03915, M04618, or M05166
+runs2018$date <- substring(runs2018$X5,19,24) #then the date, which is formatted "16MMDD" in the string.
+runs2018$date<-as.Date(as.character(runs2018$date), format='%y%m%d') #convert the YYMMDD format into a workable date
+
+#2019
+runs2019<-read_csv(here::here("J:/PFGE/Emily/MiSeq Issues Project/2019.csv"), skip = 3)
+runs2019 <- data.frame(do.call('rbind', strsplit(as.character(runs2019$`Mode                 LastWriteTime         Length Name`),'    ',fixed=TRUE)))
+runs2019 <- runs2019[-c(1,2,3), ]#drop row 20 - it's got rollover from previous row
+runs2019$instrument <- substring(runs2019$X5,12,17)#it gets funky here - we need to pull out the instrument name which is M04172, M03915, M04618, or M05166
+runs2019$date <- substring(runs2019$X5,19,24) #then the date, which is formatted "16MMDD" in the string.
+runs2019$date<-as.Date(as.character(runs2019$date), format='%y%m%d') #convert the YYMMDD format into a workable date
+
+#2020
+runs2020<-read_csv(here::here("J:/PFGE/Emily/MiSeq Issues Project/2020.csv"), skip = 3)
+runs2020 <- data.frame(do.call('rbind', strsplit(as.character(runs2020$`Mode                 LastWriteTime         Length Name`),'    ',fixed=TRUE)))
+runs2020 <- runs2020[-c(1,2,3), ]#drop row 20 - it's got rollover from previous row
+runs2020$instrument <- substring(runs2020$X5,12,17)#it gets funky here - we need to pull out the instrument name which is M04172, M03915, M04618, or M05166
+runs2020$date <- substring(runs2020$X5,19,24) #then the date, which is formatted "16MMDD" in the string.
+runs2020$date<-as.Date(as.character(runs2020$date), format='%y%m%d') #convert the YYMMDD format into a workable date
+
+#2021
+runs2021<-read_csv(here::here("J:/PFGE/Emily/MiSeq Issues Project/2021.csv"), skip = 3)
+runs2021 <- data.frame(do.call('rbind', strsplit(as.character(runs2021$`Mode                 LastWriteTime         Length Name`),'    ',fixed=TRUE)))
+runs2021 <- runs2021[-c(1,2,3), ]#drop row 20 - it's got rollover from previous row
+runs2021$instrument <- substring(runs2021$X5,12,17)#it gets funky here - we need to pull out the instrument name which is M04172, M03915, M04618, or M05166
+runs2021$date <- substring(runs2021$X5,19,24) #then the date, which is formatted "16MMDD" in the string.
+runs2021$date<-as.Date(as.character(runs2021$date), format='%y%m%d') #convert the YYMMDD format into a workable date
+
+#2022-23
+runs2022_23<-read_csv(here::here("J:/PFGE/Emily/MiSeq Issues Project/2022_23.csv"), skip = 3)
+runs2022_23 <- data.frame(do.call('rbind', strsplit(as.character(runs2022_23$`Mode                 LastWriteTime         Length Name`),'    ',fixed=TRUE)))
+runs2022_23 <- runs2022_23[-c(1,2,3), ]#drop row 20 - it's got rollover from previous row
+runs2022_23$instrument <- substring(runs2022_23$X5,12,17)#it gets funky here - we need to pull out the instrument name which is M04172, M03915, M04618, or M05166
+runs2022_23$date <- substring(runs2022_23$X5,19,24) #then the date, which is formatted "16MMDD" in the string.
+runs2022_23$date<-as.Date(as.character(runs2022_23$date), format='%y%m%d') #convert the YYMMDD format into a workable date
+
+#Stack them!
+allruns <- rbind(runs2016, runs2017, runs2018, runs2019, runs2020, runs2021, runs2022_23)
+view(allruns) #et voila :3
+
+# Histogram of runs by year-month
+ggplot(allruns, aes(x=date, fill=instrument)) + geom_histogram(color="black",  bins=44)+theme_bw()+  
+  scale_x_date(date_labels="%b %d %Y",date_breaks  ="3 month", date_minor_breaks = "1 month") + geom_vline(xintercept=as.Date("2021-11-01"), linetype='dashed', color='tomato', size=1) + 
+  theme(axis.text.x = element_text(angle = 90)) + labs(title = "WGS Runs Increased Gradually Over Time", subtitle = "Runs per month by instrument number, with construction start date (11/2021) marked as red line.")
+```
