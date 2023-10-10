@@ -5,7 +5,7 @@ Analyses were conducted for the Massachusetts State Public Health Laboratory's S
 
 ## Major Projects
 - _CT Values Analysis_: Comparison of CT values across platforms and submitters for COVID-19 clinical samples.
-- _Variant Analysis_: Visualizing COVDI-19 variant frequencies in municipal wastewater.
+- _Variant Analysis_: Visualizing COVID-19 variant frequencies in municipal wastewater.
 
 ## Meeting/Group Attendance
 - _BI Group_ (ongoing)
